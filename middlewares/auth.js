@@ -1,19 +1,16 @@
 import jwt from 'jsonwebtoken';
 import User from '../models/user/user.model.js';
+import config from '../config.js';
 
 const auth = async (req, res, next) => {
     try {
         const token = req.header('Authorization')?.replace('Bearer ', '');
 
-        if (req.method === 'PUT' && req.path === '/api/users/update-info') {
-            return next(); 
-        }
-
         if (!token) {
             return res.status(401).json({ message: 'Vui lòng đăng nhập.' });
         }
 
-        const decoded = jwt.verify(token, 'your_jwt_secret');
+        const decoded = jwt.verify(token, config.JWT_SECRET);
         if (!decoded || !decoded.userId) {
             return res.status(401).json({ message: 'Token không hợp lệ.' });
         }

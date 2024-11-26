@@ -1,30 +1,21 @@
-import mongoose from 'mongoose';
 import User from '../../models/user/user.model.js'; 
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import config from '../../config.js';
 
+const generateUserCode = async () => {
+    try {
+        const userCount = await User.countDocuments();
+        const userCode = `TK${(userCount + 1).toString().padStart(4, '0')}`;
+        return userCode;
+    } catch (error) {
+        throw new Error('Lỗi khi tạo mã người dùng: ' + error.message);
+    }
+};
 
 export const register = async (req, res) => {
     const { hoTen, email, soDienThoai, username, password, role } = req.body;
 
-    const generateUserCode = async () => {
-        let userCode;
-        let count = 1;
-    
-        while (count <= 9999) { 
-            userCode = `TK${count.toString().padStart(4, '0')}`;
-            const existingUser = await User.findOne({ userCode });
-    
-            if (!existingUser) {
-                return userCode;
-            }
-    
-            count++;
-        }
-    
-        throw new Error('Không thể tạo mã người dùng mới');
-    };
-    
     try {
         const existingUser = await User.findOne({ username });
         if (existingUser) {
@@ -55,25 +46,7 @@ export const register = async (req, res) => {
 
 export const createUser = async (req, res) => {
     const { hoTen, email, soDienThoai, username, password, role } = req.body;
-
-    const generateUserCode = async () => {
-        let userCode;
-        let count = 1;
-    
-        while (count <= 9999) {
-            userCode = `TK${count.toString().padStart(4, '0')}`;
-            const existingUser = await User.findOne({ userCode });
-    
-            if (!existingUser) {
-                return userCode;
-            }
-    
-            count++;
-        }
-    
-        throw new Error('Không thể tạo mã người dùng mới');
-    };
-
+    const userCode = await generateUserCode();
     try {
         const existingUser = await User.findOne({ username });
         if (existingUser) {
@@ -119,7 +92,12 @@ export const login = async (req, res) => {
         user.lastLogin = new Date();
         await user.save();
 
-        const token = jwt.sign({ userId: user._id, role: user.role }, 'your_jwt_secret', { expiresIn: '1h' });
+        //đã tách jwt_secret và  expire time
+        const token = jwt.sign(
+            { userId: user._id, role: user.role },
+            config.JWT_SECRET,  
+            { expiresIn: config.JWT_EXPIRE_TIME }  
+        );
         res.status(200).json({ token, userInfo: { username: user.username, hoTen: user.hoTen, email: user.email, soDienThoai: user.soDienThoai, role: user.role } });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -173,30 +151,29 @@ export const deleteUser = async (req, res) => {
     }
 };
 
-
 export const updateUserInfo = async (req, res) => {
+    const userId = req.user.role === 'admin' ? req.params.id : req.user._id;
+    const { hoTen, email, soDienThoai } = req.body;
+
+    if (req.user.role !== 'admin' && userId !== req.user._id.toString()) {
+        return res.status(403).json({ message: 'Forbidden: You cannot update this user\'s information.' });
+    }
+
     try {
-        const { hoTen, email, soDienThoai } = req.body;
+        const updatedUser = await User.findByIdAndUpdate(
+            userId,
+            { hoTen, email, soDienThoai },
+            { new: true, runValidators: true }
+        );
 
-        if (!hoTen && !email && !soDienThoai) {
-            return res.status(400).json({ message: "At least one field must be provided" });
+        if (!updatedUser) {
+            return res.status(404).json({ message: 'User not found' });
         }
 
-        const user = await User.findById(req.user._id); 
-
-        if (!user) {
-            return res.status(404).json({ message: "User not found" });
-        }
-
-        if (hoTen) user.hoTen = hoTen;
-        if (email) user.email = email;
-        if (soDienThoai) user.soDienThoai = soDienThoai;
-
-        await user.save();
-
-        res.status(200).json({ message: "User updated successfully", user });
+        res.status(200).json({ message: 'User info updated successfully', user: updatedUser });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: "Internal server error" });
+        res.status(500).json({ error: error.message });
     }
 };
+
+
